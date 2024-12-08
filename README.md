@@ -42,7 +42,7 @@ To use the VirusTotal scanning feature in the AutoVTScanner, you need to set up 
 ### 1. **Obtain a VirusTotal API Key**
 
 - Visit [VirusTotal](https://www.virustotal.com/) and create an account or log in if you already have one.
-- Once logged in, go to the [API Key page](https://www.virustotal.com/ui/apikey) and copy your API key.
+- Once logged in, go to the *API Key page* and copy your API key.
 
 ### 2. **Initialize the API Key**
 
@@ -65,3 +65,18 @@ Contributions are welcome! Please open an issue or submit a pull request.
 ## License
 
 This project is licensed under the [MIT](./LICENSE) License.
+
+---
+---
+### Ignored Files
+
+We decided to ignore some files due to the nature of the files.
+
+1. `*.crdownload` ~ These files are typically incomplete downloads by chrome.
+2. `.com.google.Chrome*` ~ These files are temporary files made by chrome.
+
+### Notes
+
+You only have **500** daily scans with virusTotal *free tier*.
+
+You can maximum have **4** lookups per minute with *free tier*.
