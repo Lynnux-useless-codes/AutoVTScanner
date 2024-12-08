@@ -29,14 +29,16 @@ log_error() {
 }
 
 log_debug() {
-  echo -e "${GREEN}$(timestamp) ${WHITE}[${WHITE}DEBUG${WHITE}]${RESET} $1"
+  if [[ "$DEBUG" == true ]]; then
+    echo -e "${GREEN}$(timestamp) ${WHITE}[${WHITE}DEBUG${WHITE}]${RESET} $1"
+  fi
 }
 
 # Directory to monitor
-DEBUG=true
-MONITOR_DIR="$HOME/Downloads"
+DEBUG=false                     # Enable Debug Messages
+MONITOR_DIR="$HOME/Downloads"   # The folder to check for new files
 LOG_FILE="$HOME/.vt_scan.log"   # File where results will be logged
-onlyCheckExisting=false         # Set to true if you want to only check existing files, false to scan new files.
+onlyCheckExisting=true         # Set to true if you want to only check existing files, false to scan new files.
 deleteMalware=true              # Set to true to delete malware-infected files
 
 # Ensure VirusTotal CLI is configured
@@ -86,12 +88,18 @@ inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read
                 continue
             fi
 
-            MALICIOUS=$(echo "$ANALYSIS_STATS" | jq -r '.last_analysis_stats.malicious // "0"')
-            SUSPICIOUS=$(echo "$ANALYSIS_STATS" | jq -r '.last_analysis_stats.suspicious // "0"')
+            MALICIOUS=$(echo "$ANALYSIS_STATS" | jq -r '.[].last_analysis_stats.malicious // "0"')
+            SUSPICIOUS=$(echo "$ANALYSIS_STATS" | jq -r '.[].last_analysis_stats.suspicious // "0"')
 
             # Check if values are not empty before comparing
             if [[ "$MALICIOUS" -gt 0 ]]; then
                 log_error "$MALICIOUS malicious findings found for $NEW_FILE."
+                if [[ "$deleteMalware" == true ]]; then
+                    log_debug "Deleting malware-infected file: $NEW_FILE"
+                    rm -f "$NEW_FILE"
+                    log_info "File deleted: $NEW_FILE"
+                fi
+
             elif [[ "$SUSPICIOUS" -gt 0 ]]; then
                 log_warning "$SUSPICIOUS suspicious findings found for $NEW_FILE."
             else
@@ -108,7 +116,7 @@ inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read
                 continue
             fi
 
-            sleep 5s
+            sleep 2s
 
             log_info "Retrieving last analysis stats for file $NEW_FILE with hash $FILE_HASH..."
             ANALYSIS_STATS=$(vt file "$FILE_HASH" -i=last_analysis_stats --format json)
@@ -121,7 +129,6 @@ inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read
             echo "$SCAN_RESULT" >> "$LOG_FILE"
             echo "$ANALYSIS_STATS" >> "$LOG_FILE"
 
-            # Log the full analysis stats for debugging
             log_debug "Full Analysis Stats: $ANALYSIS_STATS"
 
             # If the scan result is "Resource not found", wait and query the stats again
@@ -145,12 +152,17 @@ inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read
                     echo "$ANALYSIS_STATS" >> "$LOG_FILE"
 
                     MALICIOUS=$(echo "$ANALYSIS_STATS" | jq -r '.[].last_analysis_stats.malicious // "0"')
-                    MALICIOUS2=$(echo "$ANALYSIS_STATS" | jq -r '.[] // "0"')
                     SUSPICIOUS=$(echo "$ANALYSIS_STATS" | jq -r '.[].last_analysis_stats.suspicious // "0"')
 
                     # Check if values are not empty before comparing
                     if [[ "$MALICIOUS" -gt 0 ]]; then
                         log_error "$MALICIOUS malicious findings found for $NEW_FILE."
+                        if [[ "$deleteMalware" == true ]]; then
+                            log_debug "Deleting malware-infected file: $NEW_FILE"
+                            rm -f "$NEW_FILE"
+                            log_info "File deleted: $NEW_FILE"
+                        fi
+
                         break
                     elif [[ "$SUSPICIOUS" -gt 0 ]]; then
                         log_warning "$SUSPICIOUS suspicious findings found for $NEW_FILE."
@@ -161,13 +173,17 @@ inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read
                     ((RETRY_COUNT++))
                 done
             else
-              # If stats are found, check them immediately
               MALICIOUS=$(echo "$ANALYSIS_STATS" | jq -r '.[].last_analysis_stats.malicious // "0"')
               SUSPICIOUS=$(echo "$ANALYSIS_STATS" | jq -r '.[].last_analysis_stats.suspicious // "0"')
 
               # Check if values are not empty before comparing
               if [[ "$MALICIOUS" -gt 0 ]]; then
                   log_error "Warning: Malware found in $NEW_FILE. Malicious findings: $MALICIOUS."
+                      if [[ "$deleteMalware" == true ]]; then
+                          log_debug "Deleting malware-infected file: $NEW_FILE"
+                          rm -f "$NEW_FILE"
+                          log_info "File deleted: $NEW_FILE"
+                      fi
               elif [[ "$SUSPICIOUS" -gt 0 ]]; then
                   log_warning "$SUSPICIOUS suspicious findings found for $NEW_FILE."
               else

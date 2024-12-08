@@ -21,6 +21,7 @@ AutoVTScanner is a lightweight script that automatically scans newly added files
 ```bash
 sudo apt install inotify-tools
 sudo apt install jq
+sudo apt install libnotify-bin
 ```
 
 2. Clone this repository:
