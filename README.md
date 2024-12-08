@@ -86,8 +86,6 @@ chmod +x scanner.sh
 
 ### Usage
 
-Provide examples of how to run the scripts and their expected outputs.
-
 ```bash
 ./scanner.sh [options]
 ```
