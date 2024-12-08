@@ -58,7 +58,7 @@ DEFAULT_CONFIG='{
   "DEBUG": false,
   "MONITOR_DIR": "$HOME/Downloads",
   "onlyCheckExisting": false,
-  "deleteMalware": true
+  "deleteMalware": false
 }'
 
 # Check if the config file exists
