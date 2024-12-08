@@ -75,6 +75,11 @@ if ! command -v vt &>/dev/null; then
     exit 1
 fi
 
+if ! command -v jq &>/dev/null; then
+    log_error "jq is not installed. Please install it using: sudo apt-get install jq"
+    exit 1
+fi
+
 load_config() {
     if [[ ! -f "$CONFIG_FILE" ]]; then
         # If the config file doesn't exist, create it with default values
@@ -124,39 +129,53 @@ toggle_debug() {
     log_info "DEBUG is now set to $(jq -r '.DEBUG' "$CONFIG_FILE")."
 }
 
+update_config_value() {
+    local key="$1"
+    local value="$2"
+    jq ".$key = \"$value\"" "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+}
+
 change_monitor_dir() {
     local new_dir="$1"
     if [[ -d "$new_dir" ]]; then
-        sed -i "s|MONITOR_DIR=.*|MONITOR_DIR=\"$new_dir\"|" "$HOME/.vt_scan.config"
-        log_info "MONITOR_DIR has been updated to: $new_dir"
+        update_config_value "MONITOR_DIR" "$new_dir"
+        log_success "MONITOR_DIR updated to: $new_dir"
     else
-        log_error "Error: Directory '$new_dir' does not exist."
+        log_error "Directory '$new_dir' does not exist. Please provide a valid path."
         exit 1
     fi
 }
 
+
 load_config
-if [[ "$1" == "--help" ]]; then
-    show_help
-    exit 0
-elif [[ "$1" == "--version" ]]; then
-    echo -e "${WHITE}Script version: ${GREEN}$script_version"
-    exit 0
-elif [[ "$1" == "--delete" ]]; then
-    toggle_delete_malware
-    exit 0
-elif [[ "$1" == "--debug" ]]; then
-    toggle_debug
-    exit 0
-elif [[ "$1" == "--folder" ]]; then
-    if [[ -n "$2" ]]; then
-        change_monitor_dir "$2"
+case "$1" in
+    --help)
+        show_help
         exit 0
-    else
-        log_error "Error: No directory specified for --folder."
-        exit 1
-    fi
-fi
+        ;;
+    --version)
+        echo -e "${WHITE}Script version: ${GREEN}$script_version${RESET}"
+        exit 0
+        ;;
+    --delete)
+        toggle_delete_malware
+        exit 0
+        ;;
+    --debug)
+        toggle_debug
+        exit 0
+        ;;
+    --folder)
+        if [[ -n "$2" ]]; then
+            change_monitor_dir "$2"
+            exit 0
+        else
+            log_error "No directory specified for --folder."
+            exit 1
+        fi
+        ;;
+esac
+
 
 log_info "Monitoring $MONITOR_DIR for new files..."
 inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read NEW_FILE; do
