@@ -55,8 +55,7 @@ To use VirusTotal's API, you will need an API key. You can obtain it by creating
 
 Once you have your API key, you'll need to add it to the configuration:
 
-1. Create a configuration file at ~/.vt_scan.config if it doesn't exist.
-2. Add the following line to the file, replacing your_api_key_here with your actual API key:
+- Connect your apikey with the VT-CLI.
 
 ```bash
 vt init --apikey your_api_key_here
