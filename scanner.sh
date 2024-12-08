@@ -29,27 +29,136 @@ log_error() {
 }
 
 log_debug() {
-  if [[ "$DEBUG" == true ]]; then
-    echo -e "${GREEN}$(timestamp) ${WHITE}[${WHITE}DEBUG${WHITE}]${RESET} $1"
+  if [[ "$DEBUG" == "true" ]]; then
+    echo -e "${GREEN}$(timestamp) ${WHITE}[DEBUG]${RESET} $1"
   fi
 }
 
-# Directory to monitor
-DEBUG=false                     # Enable Debug Messages
-MONITOR_DIR="$HOME/Downloads"   # The folder to check for new files
-LOG_FILE="$HOME/.vt_scan.log"   # File where results will be logged
-onlyCheckExisting=true         # Set to true if you want to only check existing files, false to scan new files.
-deleteMalware=true              # Set to true to delete malware-infected files
+show_help() {
+    echo -e "${WHITE}Usage: ${BLUE}$0 ${WHITE}[${GREEN}options${WHITE}]${RESET}"
+    echo -e "${WHITE}Options:"
+    echo -e "  ${GREEN}--help          ${WHITE}Show this help message."
+    echo -e "  ${GREEN}--version       ${WHITE}Show script version."
+    echo -e "  ${GREEN}--delete        ${WHITE}Enable malware file deletion."
+    echo -e "  ${GREEN}--debug         ${WHITE}Toggle the DEBUG option."
+    echo -e "  ${GREEN}--folder ${YELLOW}<DIR>  ${WHITE}Change the directory to monitor for new files."
+}
 
-# Ensure VirusTotal CLI is configured
+send_notification() {
+    local title="$1"
+    local message="$2"
+    notify-send -a "Malware Alert" -u critical -i "dialog-information" "$title" "$message"
+}
+
+# Locals
+CONFIG_FILE="$HOME/.vt_scan.config"
+LOG_FILE="$HOME/.vt_scan.log"
+script_version="1.0"
+DEFAULT_CONFIG='{
+  "DEBUG": false,
+  "MONITOR_DIR": "$HOME/Downloads",
+  "onlyCheckExisting": false,
+  "deleteMalware": true
+}'
+
+# Check if the config file exists
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    # If the config file doesn't exist, create it with default values
+    log_info "${WHITE}Configuration file not found. Creating a new config file with default values."
+    echo "$DEFAULT_CONFIG" | sed "s|\$HOME|$HOME|g" > "$CONFIG_FILE"
+    log_debug "${WHITE}Config file created at ${GREEN}$CONFIG_FILE${WHITE}."
+fi
+
 if ! command -v vt &>/dev/null; then
-    log_error "Error: vt CLI is not installed or not in PATH"
+    log_error "VirusTotal CLI is not installed. You can install it using the following command:"
+    log_error "sudo apt-get install vt-cli"
     exit 1
 fi
 
-log_info "Monitoring $MONITOR_DIR for new files..."
+load_config() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        # If the config file doesn't exist, create it with default values
+        log_info "Configuration file not found. Creating a new config file with default values."
+        echo "$DEFAULT_CONFIG" | sed "s|\$HOME|$HOME|g" > "$CONFIG_FILE"
+        log_debug "Config file created at $CONFIG_FILE."
+    fi
 
-# Monitor directory for new files
+    # Parse the JSON config file and export variables
+    DEBUG=$(jq -r '.DEBUG' "$CONFIG_FILE")
+    MONITOR_DIR=$(jq -r '.MONITOR_DIR' "$CONFIG_FILE")
+    onlyCheckExisting=$(jq -r '.onlyCheckExisting' "$CONFIG_FILE")
+    deleteMalware=$(jq -r '.deleteMalware' "$CONFIG_FILE")
+}
+
+toggle_delete_malware() {
+    current_value=$(jq -r '.deleteMalware' "$CONFIG_FILE")
+
+    if [[ "$current_value" == "true" ]]; then
+        log_debug "Disabling deleteMalware..."
+        jq '.deleteMalware = false' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+    elif [[ "$current_value" == "false" ]]; then
+        log_debug "Enabling deleteMalware..."
+        jq '.deleteMalware = true' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+    else
+        log_error "Error: Unable to read the current value of deleteMalware."
+        exit 1
+    fi
+
+    log_info "deleteMalware is now set to $(jq -r '.deleteMalware' "$CONFIG_FILE")."
+}
+
+toggle_debug() {
+    current_value=$(jq -r '.DEBUG' "$CONFIG_FILE")
+
+    if [[ "$current_value" == "true" ]]; then
+        log_debug "Disabling DEBUG..."
+        jq '.DEBUG = false' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+    elif [[ "$current_value" == "false" ]]; then
+        log_debug "Enabling DEBUG..."
+        jq '.DEBUG = true' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+    else
+        log_error "Error: Unable to read the current value of DEBUG."
+        exit 1
+    fi
+
+    log_info "DEBUG is now set to $(jq -r '.DEBUG' "$CONFIG_FILE")."
+}
+
+change_monitor_dir() {
+    local new_dir="$1"
+    if [[ -d "$new_dir" ]]; then
+        sed -i "s|MONITOR_DIR=.*|MONITOR_DIR=\"$new_dir\"|" "$HOME/.vt_scan.config"
+        log_info "MONITOR_DIR has been updated to: $new_dir"
+    else
+        log_error "Error: Directory '$new_dir' does not exist."
+        exit 1
+    fi
+}
+
+load_config
+if [[ "$1" == "--help" ]]; then
+    show_help
+    exit 0
+elif [[ "$1" == "--version" ]]; then
+    echo -e "${WHITE}Script version: ${GREEN}$script_version"
+    exit 0
+elif [[ "$1" == "--delete" ]]; then
+    toggle_delete_malware
+    exit 0
+elif [[ "$1" == "--debug" ]]; then
+    toggle_debug
+    exit 0
+elif [[ "$1" == "--folder" ]]; then
+    if [[ -n "$2" ]]; then
+        change_monitor_dir "$2"
+        exit 0
+    else
+        log_error "Error: No directory specified for --folder."
+        exit 1
+    fi
+fi
+
+log_info "Monitoring $MONITOR_DIR for new files..."
 inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read NEW_FILE; do
     # Skip incomplete or temporary files
     if [[ "$NEW_FILE" == *.crdownload || "$NEW_FILE" == "$MONITOR_DIR"/.com.google.Chrome* ]]; then
@@ -95,13 +204,17 @@ inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read
             if [[ "$MALICIOUS" -gt 0 ]]; then
                 log_error "$MALICIOUS malicious findings found for $NEW_FILE."
                 if [[ "$deleteMalware" == true ]]; then
-                    log_debug "Deleting malware-infected file: $NEW_FILE"
+                    log_info "Deleting malware-infected file: $NEW_FILE"
                     rm -f "$NEW_FILE"
-                    log_info "File deleted: $NEW_FILE"
+                    log_success "File deleted: $NEW_FILE"
+                    send_notification "Malware Found" "Malware found and deleted file: $NEW_FILE \nVisit the report: https://www.virustotal.com/gui/file/$FILE_HASH"
+                else
+                    send_notification "Malware Found" "Malware found in file: $NEW_FILE \nVisit the report: https://www.virustotal.com/gui/file/$FILE_HASH"
                 fi
 
             elif [[ "$SUSPICIOUS" -gt 0 ]]; then
                 log_warning "$SUSPICIOUS suspicious findings found for $NEW_FILE."
+                send_notification "Suspicious File Detected" "Suspicious file detected: $NEW_FILE \nVisit the report: https://www.virustotal.com/gui/file/$FILE_HASH"
             else
                 log_success "No issues found for $NEW_FILE in the report."
             fi
@@ -118,7 +231,7 @@ inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read
 
             sleep 2s
 
-            log_info "Retrieving last analysis stats for file $NEW_FILE with hash $FILE_HASH..."
+            log_debug "Retrieving last analysis stats for file $NEW_FILE with hash $FILE_HASH..."
             ANALYSIS_STATS=$(vt file "$FILE_HASH" -i=last_analysis_stats --format json)
 
             if [[ $? -ne 0 ]]; then
@@ -129,6 +242,7 @@ inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read
             echo "$SCAN_RESULT" >> "$LOG_FILE"
             echo "$ANALYSIS_STATS" >> "$LOG_FILE"
 
+            # Log the full analysis stats for debugging
             log_debug "Full Analysis Stats: $ANALYSIS_STATS"
 
             # If the scan result is "Resource not found", wait and query the stats again
@@ -158,14 +272,18 @@ inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read
                     if [[ "$MALICIOUS" -gt 0 ]]; then
                         log_error "$MALICIOUS malicious findings found for $NEW_FILE."
                         if [[ "$deleteMalware" == true ]]; then
-                            log_debug "Deleting malware-infected file: $NEW_FILE"
+                            log_info "Deleting malware-infected file: $NEW_FILE"
                             rm -f "$NEW_FILE"
-                            log_info "File deleted: $NEW_FILE"
+                            log_success "File deleted: $NEW_FILE"
+                            send_notification "Malware Found" "Malware found and deleted file: $NEW_FILE \nVisit the report: https://www.virustotal.com/gui/file/$FILE_HASH"
+                        else
+                            send_notification "Malware Found" "Malware found in file: $NEW_FILE \nVisit the report: https://www.virustotal.com/gui/file/$FILE_HASH"
                         fi
 
                         break
                     elif [[ "$SUSPICIOUS" -gt 0 ]]; then
                         log_warning "$SUSPICIOUS suspicious findings found for $NEW_FILE."
+                        send_notification "Suspicious File Detected" "Suspicious file detected: $NEW_FILE \nVisit the report: https://www.virustotal.com/gui/file/$FILE_HASH"
                         break
                     else
                         log_success "No issues found for $NEW_FILE in the report."
@@ -173,25 +291,28 @@ inotifywait -m -e create --format "%w%f" "$MONITOR_DIR" 2>/dev/null | while read
                     ((RETRY_COUNT++))
                 done
             else
+              # If stats are found, check them immediately
               MALICIOUS=$(echo "$ANALYSIS_STATS" | jq -r '.[].last_analysis_stats.malicious // "0"')
               SUSPICIOUS=$(echo "$ANALYSIS_STATS" | jq -r '.[].last_analysis_stats.suspicious // "0"')
 
               # Check if values are not empty before comparing
               if [[ "$MALICIOUS" -gt 0 ]]; then
                   log_error "Warning: Malware found in $NEW_FILE. Malicious findings: $MALICIOUS."
-                      if [[ "$deleteMalware" == true ]]; then
-                          log_debug "Deleting malware-infected file: $NEW_FILE"
-                          rm -f "$NEW_FILE"
-                          log_info "File deleted: $NEW_FILE"
-                      fi
+                  if [[ "$deleteMalware" == true ]]; then
+                      log_info "Deleting malware-infected file: $NEW_FILE"
+                      rm -f "$NEW_FILE"
+                      log_success "File deleted: $NEW_FILE"
+                      send_notification "Malware Found" "Malware found and deleted file: $NEW_FILE \nVisit the report: https://www.virustotal.com/gui/file/$FILE_HASH"
+                  else
+                      send_notification "Malware Found" "Malware found in file: $NEW_FILE \nVisit the report: https://www.virustotal.com/gui/file/$FILE_HASH"
+                  fi
               elif [[ "$SUSPICIOUS" -gt 0 ]]; then
-                  log_warning "$SUSPICIOUS suspicious findings found for $NEW_FILE."
+                  log_warning "Suspicious file detected: $NEW_FILE."
+                  send_notification "Suspicious File Detected" "Suspicious file detected: $NEW_FILE \nVisit the report: https://www.virustotal.com/gui/file/$FILE_HASH"
               else
-                  log_success "Scan completed for $NEW_FILE. No issues found."
+                  log_success "No issues found for $NEW_FILE in the report."
               fi
             fi
         fi
-    else
-        log_info "Skipped $NEW_FILE (not a regular file)."
     fi
 done
