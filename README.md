@@ -25,7 +25,7 @@ sudo apt install inotify-tools
 2. Clone this repository:
 
 ```bash
-git clone https://github.com/Lynnux-useless-codes/AutoVtScanner.git
+git clone https://github.com/Dark-LYNN/AutoVTScanner.git
 cd AutoVTScanner
 ```
 
